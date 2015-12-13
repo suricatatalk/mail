@@ -163,8 +163,8 @@ func (mgm *MailGunMailer) SendMail(subject, message, recipient string) error {
 
 	mgm.sendChannel <- mailStruct{
 		mgm.sender,
-		subject,
 		message,
+		subject,
 		recipient,
 	}
 

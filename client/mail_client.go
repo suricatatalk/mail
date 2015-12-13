@@ -17,7 +17,7 @@ const (
 )
 
 var (
-        ErrMailServiceNotFound = fmt.Errorf("mailclient: Cannot resolve service host")
+	ErrMailServiceNotFound      = fmt.Errorf("mailclient: Cannot resolve service host")
 	ErrMailClientNotInitialized = fmt.Errorf("mailclient: MailClient not initialized")
 )
 
@@ -29,7 +29,7 @@ type Email struct {
 
 type MailClient interface {
 	IsConnected() (bool, error)
-	SendMail(recipient, subject, message string) error
+	SendMail(recipient string, subject, message interface{}) error
 }
 
 type SuricataMailClient struct {
@@ -67,19 +67,19 @@ func (client *SuricataMailClient) IsConnected() (bool, error) {
 
 }
 
-func (client *SuricataMailClient) SendMail(recipient, subject, message string) error {
+func (client *SuricataMailClient) SendMail(recipient string, subject, message interface{}) error {
 
 	// Resolve service discovery
-	serviceUrl, err := client.resolveUrl()
+	serviceURL, err := client.resolveUrl()
 	if err != nil {
 		return err
 	}
 
 	//Compose email
 	eMsg := Email{
-		recipient,
-		"Suricata: Registration confirmation",
-		"",
+		Recipient: recipient,
+		Subject:   client.composer.ComposeSubject(subject),
+		Message:   client.composer.ComposeMessage(message),
 	}
 
 	// Serialize
@@ -90,7 +90,7 @@ func (client *SuricataMailClient) SendMail(recipient, subject, message string) e
 	jsonReader := strings.NewReader(string(out))
 
 	// Send to mail microservice
-	_, postErr := http.Post(serviceUrl, HttpMIMEBodyType, jsonReader)
+	_, postErr := http.Post(serviceURL, HttpMIMEBodyType, jsonReader)
 	if postErr != nil {
 		return postErr
 	}
