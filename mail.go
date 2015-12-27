@@ -43,7 +43,7 @@ type AppConfig struct {
 	Name   string `default:"mail1"`
 	Domain string
 	ApiKey string
-	Sender string
+	Sender string `default:"info@suricata.com"`
 }
 
 type EtcdConfig struct {
@@ -105,7 +105,7 @@ func MailerFunc(m Mailer) http.HandlerFunc {
 		mail := mailStruct{}
 		decoder := json.NewDecoder(req.Body)
 		decoder.Decode(&mail)
-		log.Infoln("Sending mail %v", mail)
+		log.Infof("Sending mail %v", mail)
 		m.SendMail(mail.Subject, mail.Message, mail.Recipient)
 	}
 }
@@ -115,6 +115,14 @@ type mailStruct struct {
 	Message   string
 	Subject   string
 	Recipient string
+}
+
+func (m *mailStruct) String() string {
+	return fmt.Sprintf("Sender: %s , Recipient: %s, Subject: %s, Message: %s",
+		m.Sender,
+		m.Recipient,
+		m.Subject,
+		m.Message)
 }
 
 type MailGunMailer struct {
@@ -139,7 +147,7 @@ func NewMailGun(domain, apiKey, sender string) Mailer {
 			log.Debug("Waiting for message")
 			select {
 			case m := <-senderChan:
-				log.Debug("Receiving message %v", m)
+				log.Debugf("Receiving message: %s", m.String())
 				message := mailgun.NewMessage(m.Sender, m.Subject, m.Message, m.Recipient)
 				response, id, err := mg.Send(message)
 				if err != nil {
