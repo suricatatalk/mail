@@ -2,11 +2,13 @@ package client
 
 import (
 	"fmt"
-	stdLog "log"
+	"log"
 	"net/http"
 	"testing"
 	"text/template"
 	"time"
+
+	"github.com/nats-io/nats"
 )
 
 func TestMailComposer(t *testing.T) {
@@ -33,6 +35,35 @@ func TestMailComposer(t *testing.T) {
 
 }
 
+func TestNatsClient(t *testing.T) {
+
+	nc, _ := nats.Connect(nats.DefaultURL)
+	conn, _ := nats.NewEncodedConn(nc, nats.GOB_ENCODER)
+	defer conn.Close()
+
+	testChan := make(chan *Email, 1)
+	timeout := make(chan bool, 1)
+	go func() {
+		time.Sleep(1 * time.Second)
+		timeout <- true
+	}()
+
+	conn.Subscribe(MailServiceType, func(mail *Email) {
+		testChan <- mail
+	})
+
+	client := NewNatsMailClient()
+	client.SendMail("radek", "Hello", "Test")
+
+	select {
+	case <-timeout:
+		t.Error("Read timeout")
+	case result := <-testChan:
+		fmt.Printf("OK got %+v", result)
+	}
+
+}
+
 // FakeRegistryClient to resolve fake
 // mail service
 type FakeRegistryClient struct {
@@ -43,7 +74,7 @@ func (fc *FakeRegistryClient) Register() error {
 }
 
 func (fc *FakeRegistryClient) ServicesByName(name string) ([]string, error) {
-	stdLog.Println("Returning service.")
+	log.Println("Returning service.")
 	return []string{"127.0.0.1:3030"}, nil
 }
 
@@ -51,17 +82,18 @@ func (fc *FakeRegistryClient) Unregister() error {
 	return nil
 }
 
-func TestMailClient(t *testing.T) {
+func TestRestClient(t *testing.T) {
 	rC := FakeRegistryClient{}
 	mailClient := NewSuricataMailClient(&rC)
 	condition := make(chan struct{}, 0)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
-		stdLog.Println("Getting request")
+		log.Println("Getting request")
 		go func() { condition <- struct{}{} }()
 	})
-	stdLog.Println("Waiting for response")
+	log.Println("Waiting for response")
 	go http.ListenAndServe(":3030", mux)
+	time.Sleep(time.Second)
 	mailClient.SendMail("sohlich@gmail.com", "Subj", "Message")
 	ticker := time.NewTicker(time.Duration(10) * time.Second)
 

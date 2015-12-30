@@ -8,12 +8,12 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/nats-io/nats"
 	"github.com/sohlich/etcd_discovery"
 )
 
 const (
-	MailServiceType  = "mail"
-	HttpMIMEBodyType = "application/json"
+	MailServiceType = "mail"
 )
 
 var (
@@ -31,6 +31,33 @@ type MailClient interface {
 	IsConnected() (bool, error)
 	SendMail(recipient string, subject, message interface{}) error
 }
+
+type MessageComposer interface {
+	ComposeSubject(data interface{}) string
+	ComposeMessage(data interface{}) string
+}
+
+type SuricataMessageComposer struct {
+	SubjectTemplate *template.Template
+	MessageTemplate *template.Template
+}
+
+func (mc *SuricataMessageComposer) ComposeSubject(data interface{}) string {
+	var subject bytes.Buffer
+	mc.SubjectTemplate.Execute(&subject, data)
+	return subject.String()
+}
+
+func (mc *SuricataMessageComposer) ComposeMessage(data interface{}) string {
+	var subject bytes.Buffer
+	mc.MessageTemplate.Execute(&subject, data)
+	return subject.String()
+}
+
+// REST Client
+const (
+	HttpMIMEBodyType = "application/json"
+)
 
 type SuricataMailClient struct {
 	discoveryClient discovery.RegistryClient
@@ -110,24 +137,41 @@ func (client *SuricataMailClient) resolveUrl() (string, error) {
 	return fmt.Sprintf("http://%s", mailURL[0]), nil
 }
 
-type MessageComposer interface {
-	ComposeSubject(data interface{}) string
-	ComposeMessage(data interface{}) string
+// NATS Client
+type NatsMailClient struct {
+	conn        *nats.Conn
+	encodedConn *nats.EncodedConn
+	composer    MessageComposer
 }
 
-type SuricataMessageComposer struct {
-	subjectTemplate *template.Template
-	messageTemplate *template.Template
+func NewNatsMailClient() *NatsMailClient {
+	nc, _ := nats.Connect(nats.DefaultURL)
+	conn, _ := nats.NewEncodedConn(nc, nats.GOB_ENCODER)
+	// defer conn.Close() TODO on close client
+	subjectTemp, _ := template.New("subject").Parse("Suricata: Registration confirmation")
+	messageTemp, _ := template.New("message").Parse("Please confirm the registration on Suricata Talk website with click on this link {{.ConfirmationLink}}")
+	return &NatsMailClient{
+		nc,
+		conn,
+		&SuricataMessageComposer{
+			subjectTemp,
+			messageTemp,
+		},
+	}
 }
 
-func (mc *SuricataMessageComposer) ComposeSubject(data interface{}) string {
-	var subject bytes.Buffer
-	mc.subjectTemplate.Execute(&subject, data)
-	return subject.String()
+func (client *NatsMailClient) IsConnected() (bool, error) {
+	status := client.conn.Status() == nats.CONNECTED
+	return status, nil
 }
 
-func (mc *SuricataMessageComposer) ComposeMessage(data interface{}) string {
-	var subject bytes.Buffer
-	mc.messageTemplate.Execute(&subject, data)
-	return subject.String()
+func (client *NatsMailClient) SendMail(recipient string, subject, message interface{}) error {
+	//Compose email
+	eMsg := &Email{
+		Recipient: recipient,
+		Subject:   client.composer.ComposeSubject(subject),
+		Message:   client.composer.ComposeMessage(message),
+	}
+	err := client.encodedConn.Publish(MailServiceType, eMsg)
+	return err
 }

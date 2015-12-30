@@ -9,6 +9,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/mailgun/mailgun-go"
+	"github.com/nats-io/nats"
 	"github.com/sebest/logrusly"
 	"github.com/sohlich/etcd_discovery"
 	"golang.org/x/net/context"
@@ -96,11 +97,25 @@ func main() {
 
 	log.SetLevel(log.DebugLevel)
 	mailer := NewMailGun(appConfig.Domain, appConfig.ApiKey, appConfig.Sender)
-	http.HandleFunc("/", MailerFunc(mailer))
+
+	nc, _ := nats.Connect(nats.DefaultURL)
+	conn, _ := nats.NewEncodedConn(nc, nats.GOB_ENCODER)
+	defer conn.Close()
+
+	conn.QueueSubscribe(ServiceName, "mailgun", NatsMailerFunc(mailer))
+
+	http.HandleFunc("/", HttpMailerFunc(mailer))
 	http.ListenAndServe(":5050", nil)
 }
 
-func MailerFunc(m Mailer) http.HandlerFunc {
+func NatsMailerFunc(m Mailer) nats.Handler {
+	return func(mail *mailStruct) {
+		log.Infof("mailService: receiving NATS mail")
+		m.SendMail(mail.Subject, mail.Message, mail.Recipient)
+	}
+}
+
+func HttpMailerFunc(m Mailer) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		mail := mailStruct{}
 		decoder := json.NewDecoder(req.Body)
