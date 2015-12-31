@@ -29,6 +29,7 @@ var (
 
 	// Configs
 	etcdConfig = &EtcdConfig{}
+	natsConfig = &NatsConfig{}
 	appConfig  = &AppConfig{}
 
 	// Service discovery vars
@@ -51,22 +52,20 @@ type EtcdConfig struct {
 	Endpoint string `default:"http://127.0.0.1:4001"`
 }
 
+type NatsConfig struct {
+	Endpoint string `default:"nats://localhost:4222"`
+}
+
 type Mailer interface {
 	SendMail(subject, message, recipient string) error
 	Close()
 }
 
-func loadConfig(config *AppConfig, etcd *EtcdConfig) {
+func loadConfig(config *AppConfig, etcd *EtcdConfig, nats *NatsConfig) {
 
-	err := envconfig.Process("mail", config)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	err = envconfig.Process("etcd", etcd)
-	if err != nil {
-		log.Panic(err)
-	}
+	mustLoad("mail", config)
+	mustLoad("etcd", etcd)
+	mustLoad("nats", nats)
 
 	if len(os.Getenv(KeyLogly)) > 0 {
 		hook := logrusly.NewLogglyHook(os.Getenv(KeyLogly),
@@ -78,9 +77,16 @@ func loadConfig(config *AppConfig, etcd *EtcdConfig) {
 
 }
 
+func mustLoad(prefix string, config interface{}) {
+	err := envconfig.Process(prefix, config)
+	if err != nil {
+		log.Panic(err)
+	}
+}
+
 func main() {
 
-	loadConfig(appConfig, etcdConfig)
+	loadConfig(appConfig, etcdConfig, natsConfig)
 
 	log.SetLevel(log.DebugLevel)
 
@@ -98,7 +104,8 @@ func main() {
 	log.SetLevel(log.DebugLevel)
 	mailer := NewMailGun(appConfig.Domain, appConfig.ApiKey, appConfig.Sender)
 
-	nc, _ := nats.Connect(nats.DefaultURL)
+	// Configure NATS
+	nc, _ := nats.Connect(natsConfig.Endpoint)
 	conn, _ := nats.NewEncodedConn(nc, nats.GOB_ENCODER)
 	defer conn.Close()
 
