@@ -29,7 +29,7 @@ type Email struct {
 
 type MailClient interface {
 	IsConnected() (bool, error)
-	SendMail(recipient string, subject, message interface{}) error
+	SendMail(recipient, subject, message string) error
 }
 
 type MessageComposer interface {
@@ -54,6 +54,13 @@ func (mc *SuricataMessageComposer) ComposeMessage(data interface{}) string {
 	return subject.String()
 }
 
+func NewMailComposer(sbjTmp, msgTmp *template.Template) *SuricataMessageComposer {
+	return &SuricataMessageComposer{
+		sbjTmp,
+		msgTmp,
+	}
+}
+
 // REST Client
 const (
 	HttpMIMEBodyType = "application/json"
@@ -61,18 +68,13 @@ const (
 
 type SuricataMailClient struct {
 	discoveryClient discovery.RegistryClient
-	composer        MessageComposer
 }
 
 func NewSuricataMailClient(disc discovery.RegistryClient) *SuricataMailClient {
-	subjectTemp, _ := template.New("subject").Parse("Suricata: Registration confirmation")
-	messageTemp, _ := template.New("message").Parse("Please confirm the registration on Suricata Talk website with click on this link {{.ConfirmationLink}}")
+	// subjectTemp, _ := template.New("subject").Parse("Suricata: Registration confirmation")
+	// messageTemp, _ := template.New("message").Parse("Please confirm the registration on Suricata Talk website with click on this link {{.ConfirmationLink}}")
 	return &SuricataMailClient{
 		disc,
-		&SuricataMessageComposer{
-			subjectTemp,
-			messageTemp,
-		},
 	}
 }
 
@@ -94,7 +96,7 @@ func (client *SuricataMailClient) IsConnected() (bool, error) {
 
 }
 
-func (client *SuricataMailClient) SendMail(recipient string, subject, message interface{}) error {
+func (client *SuricataMailClient) SendMail(recipient, subject, message string) error {
 
 	// Resolve service discovery
 	serviceURL, err := client.resolveUrl()
@@ -105,8 +107,8 @@ func (client *SuricataMailClient) SendMail(recipient string, subject, message in
 	//Compose email
 	eMsg := Email{
 		Recipient: recipient,
-		Subject:   client.composer.ComposeSubject(subject),
-		Message:   client.composer.ComposeMessage(message),
+		Subject:   subject,
+		Message:   message,
 	}
 
 	// Serialize
@@ -141,23 +143,24 @@ func (client *SuricataMailClient) resolveUrl() (string, error) {
 type NatsMailClient struct {
 	conn        *nats.Conn
 	encodedConn *nats.EncodedConn
-	composer    MessageComposer
 }
 
-func NewNatsMailClient() *NatsMailClient {
-	nc, _ := nats.Connect(nats.DefaultURL)
-	conn, _ := nats.NewEncodedConn(nc, nats.GOB_ENCODER)
+func NewNatsMailClient(url string) (*NatsMailClient, error) {
+	nc, err := nats.Connect(url)
+	if err != nil {
+		return nil, err
+	}
+	conn, encodeErr := nats.NewEncodedConn(nc, nats.GOB_ENCODER)
+	if encodeErr != nil {
+		return nil, encodeErr
+	}
+
 	// defer conn.Close() TODO on close client
-	subjectTemp, _ := template.New("subject").Parse("Suricata: Registration confirmation")
-	messageTemp, _ := template.New("message").Parse("Please confirm the registration on Suricata Talk website with click on this link {{.ConfirmationLink}}")
+
 	return &NatsMailClient{
 		nc,
 		conn,
-		&SuricataMessageComposer{
-			subjectTemp,
-			messageTemp,
-		},
-	}
+	}, nil
 }
 
 func (client *NatsMailClient) IsConnected() (bool, error) {
@@ -165,12 +168,12 @@ func (client *NatsMailClient) IsConnected() (bool, error) {
 	return status, nil
 }
 
-func (client *NatsMailClient) SendMail(recipient string, subject, message interface{}) error {
+func (client *NatsMailClient) SendMail(recipient, subject, message string) error {
 	//Compose email
 	eMsg := &Email{
 		Recipient: recipient,
-		Subject:   client.composer.ComposeSubject(subject),
-		Message:   client.composer.ComposeMessage(message),
+		Subject:   subject,
+		Message:   message,
 	}
 	err := client.encodedConn.Publish(MailServiceType, eMsg)
 	return err
