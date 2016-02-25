@@ -11,7 +11,7 @@ import (
 	"github.com/mailgun/mailgun-go"
 	"github.com/nats-io/nats"
 	"github.com/sebest/logrusly"
-	"github.com/sohlich/etcd_discovery"
+	"github.com/sohlich/etcd_service_discovery"
 	"golang.org/x/net/context"
 )
 
