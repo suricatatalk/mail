@@ -9,7 +9,7 @@ import (
 	"text/template"
 
 	"github.com/nats-io/nats"
-	"github.com/sohlich/etcd_discovery"
+	"github.com/sohlich/etcd_service_discovery"
 )
 
 const (
